@@ -97,9 +97,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          RELEASE_NOTES_FOUND=false
+
           # Try CHANGELOG.md first (standard format)
           if [ -f CHANGELOG.md ]; then
-            echo "📝 Using CHANGELOG.md for release notes"
+            echo "📝 Trying CHANGELOG.md for release notes"
             
             awk -v v="${VERSION}" '
               index($0, "## [" v "]") == 1 { found = 1; next }
@@ -107,16 +109,17 @@ jobs:
               found { print }
             ' CHANGELOG.md > RELEASE_NOTES.md
 
-            if ! grep -q "[^[:space:]]" RELEASE_NOTES.md; then
-              echo "⚠️ Nessuna nota release trovata in CHANGELOG.md per la versione ${VERSION}." > RELEASE_NOTES.md
+            if grep -q "[^[:space:]]" RELEASE_NOTES.md; then
+              echo "✅ Release notes found in CHANGELOG.md"
+              RELEASE_NOTES_FOUND=true
+            else
+              echo "⚠️ CHANGELOG.md exists but no notes found for version ${VERSION}, trying readme.txt"
             fi
-            
-            exit 0
           fi
 
-          # Try readme.txt (WordPress format)
-          if [ -f readme.txt ]; then
-            echo "📝 Using readme.txt (WordPress format) for release notes"
+          # Try readme.txt (WordPress format) if CHANGELOG.md didn't work
+          if [ "$RELEASE_NOTES_FOUND" = false ] && [ -f readme.txt ]; then
+            echo "📝 Trying readme.txt (WordPress format) for release notes"
             
             # Extract changelog section from WordPress readme.txt
             awk '
@@ -129,15 +132,22 @@ jobs:
               }
             ' readme.txt > RELEASE_NOTES.md
 
-            if ! grep -q "[^[:space:]]" RELEASE_NOTES.md; then
-              echo "⚠️ Nessuna nota release trovata in readme.txt per la versione ${VERSION}." > RELEASE_NOTES.md
+            if grep -q "[^[:space:]]" RELEASE_NOTES.md; then
+              echo "✅ Release notes found in readme.txt"
+              RELEASE_NOTES_FOUND=true
+            else
+              echo "⚠️ readme.txt exists but no notes found"
             fi
-            
-            exit 0
           fi
 
-          # No changelog file found
-          echo "ℹ️ Nessun file changelog trovato (CHANGELOG.md o readme.txt)" > RELEASE_NOTES.md
+          # Fallback if no useful notes found
+          if [ "$RELEASE_NOTES_FOUND" = false ]; then
+            if [ -f CHANGELOG.md ] || [ -f readme.txt ]; then
+              echo "⚠️ Nessuna nota release trovata per la versione ${VERSION}." > RELEASE_NOTES.md
+            else
+              echo "ℹ️ Nessun file changelog trovato (CHANGELOG.md o readme.txt)" > RELEASE_NOTES.md
+            fi
+          fi
 
       - name: Create GitHub release
         if: steps.tag_version.outputs.created == 'true'
