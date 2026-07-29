@@ -6,6 +6,10 @@ on:
       plugin_file:
         required: false
         type: string
+    secrets:
+      github-token:
+        description: 'GitHub token for creating tags and releases (use PAT to trigger other workflows)'
+        required: false
 
 permissions:
   contents: write
@@ -20,6 +24,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          token: ${{ secrets.github-token || github.token }}
 
       - name: Determine plugin file
         id: determine_plugin_file
@@ -92,25 +97,52 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ ! -f CHANGELOG.md ]; then
-            echo "" > RELEASE_NOTES.md
+          # Try CHANGELOG.md first (standard format)
+          if [ -f CHANGELOG.md ]; then
+            echo "📝 Using CHANGELOG.md for release notes"
+            
+            awk -v v="${VERSION}" '
+              index($0, "## [" v "]") == 1 { found = 1; next }
+              found && /^## \[/ { exit }
+              found { print }
+            ' CHANGELOG.md > RELEASE_NOTES.md
+
+            if ! grep -q "[^[:space:]]" RELEASE_NOTES.md; then
+              echo "⚠️ Nessuna nota release trovata in CHANGELOG.md per la versione ${VERSION}." > RELEASE_NOTES.md
+            fi
+            
             exit 0
           fi
 
-          awk -v v="${VERSION}" '
-            index($0, "## [" v "]") == 1 { found = 1; next }
-            found && /^## \[/ { exit }
-            found { print }
-          ' CHANGELOG.md > RELEASE_NOTES.md
+          # Try readme.txt (WordPress format)
+          if [ -f readme.txt ]; then
+            echo "📝 Using readme.txt (WordPress format) for release notes"
+            
+            # Extract changelog section from WordPress readme.txt
+            awk '
+              /^== Changelog ==/ {found=1; next}
+              found && /^[=]/ {exit}  # Exit if we hit another section
+              found && NF && !started {started=1}  # Start at first non-empty line after Changelog
+              started {
+                if (!NF && prev !="") {exit}  # Exit at first double blank line
+                if (NF) {print; prev=$0} else prev=""
+              }
+            ' readme.txt > RELEASE_NOTES.md
 
-          if ! grep -q "[^[:space:]]" RELEASE_NOTES.md; then
-            echo "Nessuna nota release trovata in CHANGELOG.md per la versione ${VERSION}." > RELEASE_NOTES.md
+            if ! grep -q "[^[:space:]]" RELEASE_NOTES.md; then
+              echo "⚠️ Nessuna nota release trovata in readme.txt per la versione ${VERSION}." > RELEASE_NOTES.md
+            fi
+            
+            exit 0
           fi
+
+          # No changelog file found
+          echo "ℹ️ Nessun file changelog trovato (CHANGELOG.md o readme.txt)" > RELEASE_NOTES.md
 
       - name: Create GitHub release
         if: steps.tag_version.outputs.created == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.github-token || github.token }}
           VERSION: ${{ steps.tag_version.outputs.version }}
         run: |
           set -euo pipefail

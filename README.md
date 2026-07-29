@@ -186,3 +186,88 @@ e nel `wp-config.php`:
 ```php
 define('GITHUB_UPDATER_AUTH_TOKEN', 'github_pat_xxxxx');
 ```
+
+---
+
+### Supporto per formati changelog multipli
+
+Il workflow `auto-tag-version` supporta **due formati** per le release notes:
+
+#### 1. CHANGELOG.md (formato standard)
+
+```markdown
+## [1.2.0] - 2026-01-15
+
+- Nuova feature XYZ
+- Fix bug ABC
+```
+
+Il parser estrae la sezione corrispondente alla versione (es. `## [1.2.0]`).
+
+#### 2. readme.txt (formato WordPress)
+
+```text
+== Changelog ==
+
+= 1.2.0 - 2026-01-15 =
+* Nuova feature XYZ
+* Fix bug ABC
+
+= 1.1.0 - 2025-12-01 =
+* Versione precedente
+```
+
+Il parser estrae la **prima entry** dalla sezione `== Changelog ==`.
+
+**Ordine di priorità:**
+1. Se esiste `CHANGELOG.md` → lo usa
+2. Se esiste `readme.txt` → lo usa  
+3. Altrimenti → release notes vuote
+
+---
+
+### Triggerare workflow multipli: configurazione PAT
+
+**Problema**: GitHub blocca i workflow successivi quando il tag viene creato con il `GITHUB_TOKEN` default (protezione anti-loop).
+
+**Soluzione**: Usare un **Personal Access Token (PAT)** per triggerare `release-plugin.yml`, `deploy.yml`, ecc.
+
+#### Passo 1: Creare il PAT
+
+1. GitHub → Settings → Developer settings → Personal access tokens → **Tokens (classic)**
+2. Generate new token (classic)
+3. Scopes necessari:
+   - ✅ `repo` (Full control of private repositories)
+   - ✅ `workflow` (Update GitHub Action workflows)
+4. Salva il token generato
+
+#### Passo 2: Aggiungere il secret al repository
+
+1. Repository → Settings → Secrets and variables → Actions
+2. New repository secret:
+   - Name: `WORKFLOW_TOKEN`
+   - Value: `ghp_xxxxxxxxxxxxx` (il PAT creato)
+
+#### Passo 3: Usare il token nel workflow
+
+```yaml
+name: Auto Tag Version
+
+on:
+  push:
+    branches:
+      - master  # o main
+
+permissions:
+  contents: write
+
+jobs:
+  auto-tag-version:
+    uses: Ottomedia/pandora-meta/.github/workflows/auto-tag-version.yml@main
+    with:
+      plugin_file: wp-bcok-booking-carnet.php  # opzionale
+    secrets:
+      github-token: ${{ secrets.WORKFLOW_TOKEN }}
+```
+
+**Nota**: Se NON fornisci il secret `github-token`, il workflow usa il `GITHUB_TOKEN` default (comportamento backward-compatible). I workflow successivi **non** verranno triggerati.
