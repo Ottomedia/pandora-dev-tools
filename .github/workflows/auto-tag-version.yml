@@ -92,6 +92,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          if [ ! -f CHANGELOG.md ]; then
+            echo "" > RELEASE_NOTES.md
+            exit 0
+          fi
+
           awk -v v="${VERSION}" '
             index($0, "## [" v "]") == 1 { found = 1; next }
             found && /^## \[/ { exit }
